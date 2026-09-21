@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+test
+state
+downloads
+incomplete
+data
+*.md
+.env
+.env.*
+.gitignore
+docker-compose.example.yml

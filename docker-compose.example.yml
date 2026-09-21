@@ -1,0 +1,31 @@
+# Example only - replace API_KEY and the host downloads path.
+services:
+  youtube-arr-bridge:
+    image: ghcr.io/mariocakedev/youtube-arr-bridge:latest
+    # build: .
+    container_name: youtube-arr-bridge
+    restart: unless-stopped
+    environment:
+      API_KEY: "${YOUTUBE_ARR_BRIDGE_API_KEY:?set a strong API key}"
+      # Paths inside this container.
+      DOWNLOAD_DIR: "/downloads"
+      INCOMPLETE_DIR: "/incomplete"
+      STATE_DIR: "/data"
+      # How this service reports the completed-downloads root to DroppedNeedle.
+      # DroppedNeedle mounts the SAME host dir at /sabnzbd-downloads.
+      PATH_MAP: "/downloads:/sabnzbd-downloads"
+      REPORTED_COMPLETE_DIR: "/sabnzbd-downloads"
+      # Audio output.
+      AUDIO_FORMAT: "mp3"        # mp3 | flac | opus | m4a
+      AUDIO_BITRATE: "320"       # mp3 only
+      CATEGORY: "music"
+      CONCURRENCY: "1"
+      TZ: "Europe/Berlin"
+    volumes:
+      # IMPORTANT: this must be the SAME host directory DroppedNeedle mounts at
+      # /sabnzbd-downloads. Files land here and DroppedNeedle imports them.
+      - /mnt/media/downloads:/downloads
+      - ./state:/data
+    ports:
+      # Only needed if DroppedNeedle runs outside the Docker network.
+      - "8484:8484"
