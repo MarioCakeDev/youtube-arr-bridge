@@ -1,0 +1,18 @@
+{
+  "name": "youtube-arr-bridge",
+  "version": "0.1.0",
+  "description": "Standalone YouTube → *arr bridge: a Newznab indexer + SABnzbd download client backed by yt-dlp. No Lidarr dependency.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js",
+    "lint": "node --check src/index.js && node --check src/server.js && node --check src/auth.js && node --check src/config.js && node --check src/release.js && node --check src/newznab.js && node --check src/sabnzbd.js && node --check src/engine.js && node --check src/youtube.js && node --check src/downloader.js && node --check src/jobs.js && node --check src/pathmap.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,11 @@
+node_modules/
+npm-debug.log*
+state/
+*.log
+.env
+.env.*
+downloads/
+incomplete/
+data/
+*.tagtmp.*
+.DS_Store
