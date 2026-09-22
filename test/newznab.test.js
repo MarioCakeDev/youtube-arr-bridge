@@ -4,8 +4,10 @@ import {
   createNewznab,
   capsXml,
   buildEnclosureUrl,
+  buildNzb,
   estimatedSize,
   parseNzbSpec,
+  sanitizeYoutubeUrl,
   escapeXml,
 } from '../src/newznab.js';
 
@@ -118,4 +120,66 @@ test('size estimate is plausible for mp3 and flac', () => {
 
 test('xml escaping handles ampersands in names', () => {
   assert.equal(escapeXml('Simon & Garfunkel <live>'), 'Simon &amp; Garfunkel &lt;live&gt;');
+});
+
+test('a wrong key of a different length is rejected without throwing', async () => {
+  const nz = createNewznab({ config: baseConfig() });
+  const res = await nz.handle(new URLSearchParams('t=search&q=x'), { baseUrl: 'http://h', apikey: 's' });
+  assert.match(res.body, /<error code="100"/);
+});
+
+test('sanitizeYoutubeUrl allows YouTube http(s) hosts and rejects everything else', () => {
+  assert.equal(sanitizeYoutubeUrl('https://music.youtube.com/playlist?list=X'), 'https://music.youtube.com/playlist?list=X');
+  assert.equal(sanitizeYoutubeUrl('http://www.youtube.com/watch?v=abc'), 'http://www.youtube.com/watch?v=abc');
+  assert.equal(sanitizeYoutubeUrl('https://youtube.com/playlist?list=Y'), 'https://youtube.com/playlist?list=Y');
+  assert.equal(sanitizeYoutubeUrl('http://169.254.169.254/latest/meta-data'), '');
+  assert.equal(sanitizeYoutubeUrl('file:///etc/passwd'), '');
+  assert.equal(sanitizeYoutubeUrl('https://youtube.com.evil.test/x'), '');
+  assert.equal(sanitizeYoutubeUrl('https://evil.test/#https://youtube.com'), '');
+  assert.equal(sanitizeYoutubeUrl(''), '');
+  assert.equal(sanitizeYoutubeUrl(null), '');
+});
+
+test('parseNzbSpec drops a non-YouTube youtube_url meta and keeps a valid one', () => {
+  const bad = buildNzb({
+    spec: { artist: 'A', album: 'B' },
+    title: 'A - B',
+    category: 'music',
+    resolution: { playlistUrl: 'http://internal:8080/steal' },
+  });
+  assert.equal(parseNzbSpec(bad).spec.youtubeUrl, '');
+  const good = buildNzb({
+    spec: { artist: 'A', album: 'B' },
+    title: 'A - B',
+    category: 'music',
+    resolution: { playlistUrl: 'https://music.youtube.com/playlist?list=X' },
+  });
+  assert.equal(parseNzbSpec(good).spec.youtubeUrl, 'https://music.youtube.com/playlist?list=X');
+});
+
+test('registry is bounded and the most recent guid still resolves', async () => {
+  const nz = createNewznab({ config: baseConfig(), registryLimit: 3 });
+  let last;
+  for (let i = 0; i < 6; i += 1) {
+    last = await nz.handle(new URLSearchParams(`t=music&artist=A&album=B${i}`), { baseUrl: 'http://h', apikey: 'secret' });
+  }
+  assert.equal(nz.registry.size, 3);
+  const guid = last.body.match(/<guid[^>]*>([^<]+)<\/guid>/)[1];
+  const getRes = await nz.handle(new URLSearchParams(`t=get&id=${encodeURIComponent(guid)}`), { baseUrl: 'http://h', apikey: 'secret' });
+  const { spec } = parseNzbSpec(getRes.body);
+  assert.equal(spec.artist, 'A');
+  assert.equal(spec.album, 'B5');
+});
+
+test('registry sweeps entries older than the ttl', async () => {
+  let clock = 1000;
+  const nz = createNewznab({ config: baseConfig(), registryTtlMs: 100, now: () => clock });
+  const res = await nz.handle(new URLSearchParams('t=music&artist=A&album=B&year=2000'), { baseUrl: 'http://h', apikey: 'secret' });
+  const guid = res.body.match(/<guid[^>]*>([^<]+)<\/guid>/)[1];
+  assert.equal(nz.registry.size, 1);
+  clock += 1000;
+  const getRes = await nz.handle(new URLSearchParams(`t=get&id=${encodeURIComponent(guid)}&artist=A&album=B`), { baseUrl: 'http://h', apikey: 'secret' });
+  assert.equal(nz.registry.size, 0);
+  assert.match(getRes.body, /<nzb /);
+  assert.equal(parseNzbSpec(getRes.body).spec.album, 'B');
 });

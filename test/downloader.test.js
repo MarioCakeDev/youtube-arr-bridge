@@ -59,6 +59,14 @@ test('search args use ytsearch with the configured result count', () => {
   assert.equal(args[args.length - 1], 'ytsearch5:Radiohead In Rainbows');
 });
 
+test('yt-dlp args route temporary files through incompleteDir', () => {
+  const cfg = config();
+  const args = buildTrackArgs({ url: 'https://youtu.be/x', outDir: '/tmp/o', index: 1, spec, config: cfg });
+  const idx = args.indexOf('--paths');
+  assert.ok(idx >= 0);
+  assert.equal(args[idx + 1], `temp:${cfg.incompleteDir}`);
+});
+
 test('flac config produces a flac audio-format argument', () => {
   const args = buildTrackArgs({ url: 'u', outDir: '/tmp/o', index: 1, spec, config: config({ audioFormat: 'flac', audioBitrate: '' }) });
   const idx = args.indexOf('--audio-format');

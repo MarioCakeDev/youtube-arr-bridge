@@ -128,6 +128,43 @@ test('history delete removes the job', async () => {
   assert.equal(store.list().length, 0);
 });
 
+test('addurl drops a non-YouTube youtube_url so the job re-resolves', async () => {
+  const { sab, store } = setup();
+  const url = 'http://bridge/api/newznab/get?artist=A&album=B&youtube_url=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data';
+  const res = JSON.parse((await sab.handle(key({ mode: 'addurl', name: url }))).body);
+  const job = store.get(res.nzo_ids[0]);
+  assert.equal(job.spec.youtubeUrl, '');
+  assert.equal(job.resolution, null);
+});
+
+test('addurl keeps a valid music.youtube.com youtube_url as the resolution', async () => {
+  const { sab, store } = setup();
+  const url = 'http://bridge/api/newznab/get?artist=A&album=B&youtube_url=https%3A%2F%2Fmusic.youtube.com%2Fplaylist%3Flist%3DX';
+  const res = JSON.parse((await sab.handle(key({ mode: 'addurl', name: url }))).body);
+  const job = store.get(res.nzo_ids[0]);
+  assert.equal(job.resolution.playlistUrl, 'https://music.youtube.com/playlist?list=X');
+});
+
+test('history exposes unix completed and time_added timestamps', async () => {
+  const { sab, store } = setup();
+  const job = store.create({ name: 'X', category: 'music', spec: { artist: 'X', album: 'Y' } });
+  const added = job.added_ts;
+  store.update(job.nzo_id, { status: 'downloading', started_ts: added + 1 });
+  store.complete(job.nzo_id, { storage: '/sabnzbd-downloads/X', size: 10 });
+  const slot = JSON.parse((await sab.handle(key({ mode: 'history' }))).body).history.slots[0];
+  const done = store.get(job.nzo_id).completed_ts;
+  assert.ok(done > 1_000_000_000, `completed_ts=${done}`);
+  assert.equal(slot.completed, done);
+  assert.equal(slot.time_added, added);
+  assert.ok(slot.download_time >= 0);
+});
+
+test('wrong-length api key is rejected without throwing', async () => {
+  const { sab } = setup();
+  const res = await sab.handle(new URLSearchParams('mode=queue&apikey=x'));
+  assert.deepEqual(JSON.parse(res.body), { status: false, error: 'API Key Incorrect' });
+});
+
 test('pause and resume are reflected on the queue', async () => {
   const { sab } = setup();
   await sab.handle(key({ mode: 'pause' }));

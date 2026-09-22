@@ -12,18 +12,12 @@
  */
 
 import http from 'node:http';
-import crypto from 'node:crypto';
 import { createNewznab } from './newznab.js';
 import { createSabnzbd } from './sabnzbd.js';
 
-const MAX_BODY = 16 * 1024 * 1024;
+export { secureEqual } from './auth.js';
 
-export function secureEqual(a, b) {
-  const left = Buffer.from(String(a ?? ''));
-  const right = Buffer.from(String(b ?? ''));
-  if (left.length !== right.length) return false;
-  return crypto.timingSafeEqual(left, right);
-}
+const MAX_BODY = 16 * 1024 * 1024;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {

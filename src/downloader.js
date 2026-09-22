@@ -79,6 +79,7 @@ function commonArgs(config) {
     '--add-metadata',
     '--embed-metadata',
   ];
+  if (config.incompleteDir) args.push('--paths', `temp:${config.incompleteDir}`);
   if (config.jsRuntime) args.push('--js-runtimes', config.jsRuntime);
   if (config.ffmpegPath) args.push('--ffmpeg-location', config.ffmpegPath);
   if (config.cookiesFile) args.push('--cookies', config.cookiesFile);

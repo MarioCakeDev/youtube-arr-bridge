@@ -11,6 +11,7 @@
 
 import crypto from 'node:crypto';
 import { encodeReleaseName } from './release.js';
+import { secureEqual } from './auth.js';
 
 export function escapeXml(value) {
   return String(value ?? '')
@@ -163,6 +164,26 @@ ${metaXml}
 </nzb>`;
 }
 
+/**
+ * Accept a `youtube_url` only when it is an http(s) URL on YouTube; otherwise
+ * return '' so the caller re-resolves the album instead of handing an arbitrary
+ * URL to yt-dlp (SSRF).
+ */
+export function sanitizeYoutubeUrl(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return '';
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return '';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  const host = url.hostname.toLowerCase();
+  if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return '';
+  return url.toString();
+}
+
 /** Extract embedded meta tags from NZB bytes (or any body containing them). */
 export function parseNzbSpec(data) {
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data ?? '');
@@ -182,7 +203,7 @@ export function parseNzbSpec(data) {
     album: meta.album || '',
     year: meta.year || '',
     query: meta.query || '',
-    youtubeUrl: meta.youtube_url || '',
+    youtubeUrl: sanitizeYoutubeUrl(meta.youtube_url),
   };
   return { spec, meta };
 }
@@ -195,9 +216,41 @@ export function parseNzbSpec(data) {
  * @param {Function} deps.log
  * @param {Function} [deps.search] async (spec) => resolution; best-effort YouTube confirmation
  */
-export function createNewznab({ config, log = () => {}, search = null }) {
-  // guid -> { spec, resolution } so `t=get&id=` also works.
+export function createNewznab({
+  config,
+  log = () => {},
+  search = null,
+  registryLimit = 500,
+  registryTtlMs = 24 * 60 * 60 * 1000,
+  now = Date.now,
+}) {
+  // guid -> { spec, resolution, title, at } so `t=get&id=` also works.
+  // Bounded (LRU) and TTL-swept so a long-running container cannot leak.
   const registry = new Map();
+  const maxEntries = Math.max(1, registryLimit);
+
+  function remember(guid, entry) {
+    const at = now();
+    for (const [key, value] of registry) {
+      if (at - value.at > registryTtlMs) registry.delete(key);
+    }
+    registry.set(guid, { ...entry, at });
+    while (registry.size > maxEntries) {
+      registry.delete(registry.keys().next().value);
+    }
+  }
+
+  function recall(id) {
+    const entry = registry.get(id);
+    if (!entry) return null;
+    if (now() - entry.at > registryTtlMs) {
+      registry.delete(id);
+      return null;
+    }
+    registry.delete(id);
+    registry.set(id, entry);
+    return entry;
+  }
 
   function buildSpec(params) {
     const artist = String(params.get('artist') || '').trim();
@@ -239,7 +292,7 @@ export function createNewznab({ config, log = () => {}, search = null }) {
     const guid = `yab-${hashSpec(spec)}-${Math.floor(Date.now() / 86400000)}`;
     const url = buildEnclosureUrl(baseUrl, spec, config);
     const pubDate = new Date().toUTCString();
-    registry.set(guid, { spec, resolution, title });
+    remember(guid, { spec, resolution, title });
     const item = {
       title,
       guid,
@@ -257,8 +310,9 @@ export function createNewznab({ config, log = () => {}, search = null }) {
     let spec;
     let resolution = null;
     let title = '';
-    if (id && registry.has(id)) {
-      ({ spec, resolution, title } = registry.get(id));
+    const remembered = id ? recall(id) : null;
+    if (remembered) {
+      ({ spec, resolution, title } = remembered);
     } else {
       spec = buildSpec(params);
       if (!spec.artist && !spec.album && !spec.query) {
@@ -288,7 +342,7 @@ export function createNewznab({ config, log = () => {}, search = null }) {
       }
       return { status: 200, contentType: 'application/xml', body: capsXml() };
     }
-    if (!config.apiKey || apikey !== config.apiKey) {
+    if (!config.apiKey || !secureEqual(apikey, config.apiKey)) {
       return { status: 200, contentType: 'application/xml', body: errorXml(100, 'Incorrect user credentials') };
     }
     if (t === 'get') return handleGet(params, { baseUrl });

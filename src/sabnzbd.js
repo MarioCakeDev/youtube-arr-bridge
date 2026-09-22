@@ -11,7 +11,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { encodeReleaseName } from './release.js';
-import { parseNzbSpec, estimatedSize } from './newznab.js';
+import { parseNzbSpec, estimatedSize, sanitizeYoutubeUrl } from './newznab.js';
+import { secureEqual } from './auth.js';
 import { STATUS } from './jobs.js';
 
 const PARENT_STATUS = {
@@ -56,7 +57,8 @@ function historySlotFromJob(job) {
     bytes: Number(job.size) || 0,
     fail_message: completed ? '' : job.error || 'Download failed',
     download_time: Math.max(0, (job.completed_ts || 0) - (job.started_ts || job.added_ts || 0)),
-    completed: completed ? 1 : 0,
+    completed: job.completed_ts || 0,
+    time_added: job.added_ts || 0,
   };
 }
 
@@ -124,7 +126,7 @@ export function createSabnzbd({ config, store, engine, log = () => {} }) {
         album: url.searchParams.get('album') || '',
         year: url.searchParams.get('year') || '',
         query: url.searchParams.get('q') || '',
-        youtubeUrl: url.searchParams.get('youtube_url') || '',
+        youtubeUrl: sanitizeYoutubeUrl(url.searchParams.get('youtube_url')),
       };
     } catch {
       spec = { artist: '', album: '', query: raw };
@@ -169,7 +171,7 @@ export function createSabnzbd({ config, store, engine, log = () => {} }) {
     if (mode === 'auth') return json({ auth: 'apikey' });
 
     const provided = String(params.get('apikey') || '');
-    if (!config.apiKey || provided !== config.apiKey) {
+    if (!config.apiKey || !secureEqual(provided, config.apiKey)) {
       return json({ status: false, error: 'API Key Incorrect' });
     }
 
